@@ -5,9 +5,6 @@ import os
 
 app = Flask(__name__)
 
-API_ID = 30589536
-API_HASH = "b5f5ae07b739eb28e37d2aa92125bcea"
-
 clients = {}
 
 @app.route('/')
@@ -17,9 +14,11 @@ def home():
 @app.route('/login')
 def login():
     phone = request.args.get('phone')
+    api_id = int(request.args.get('api_id'))
+    api_hash = request.args.get('api_hash')
     
     async def start():
-        client = TelegramClient(f'session_{phone}', API_ID, API_HASH)
+        client = TelegramClient(f'session_{phone}', api_id, api_hash)
         await client.connect()
         result = await client.send_code_request(phone)
         clients[phone] = {
