@@ -19,15 +19,13 @@ def send_code():
         api_hash_val = data.get('api_hash')
         phone_val = data.get('phone')
         
-        # التحقق من أن الحقول ليست فارغة
         if not api_id_val or not api_hash_val or not phone_val:
-            return jsonify({"status": "error", "message": "جميع الحقول (API ID, API Hash, الهاتف) إجبارية ولا يمكن أن تكون فارغة."}), 400
+            return jsonify({"status": "error", "message": "جميع الحقول (API ID, API Hash, الهاتف) إجبارية."}), 400
         
-        # التأكد التام من تحويل api_id إلى رقم صحيح (Integer) حصعاً لمنع أي خطأ
         try:
             api_id = int(str(api_id_val).strip())
         except (ValueError, TypeError):
-            return jsonify({"status": "error", "message": "قيمة API ID غير صالحة؛ يجب أن تتكون من أرقام صحيحة فقط."}), 400
+            return jsonify({"status": "error", "message": "API ID يجب أن يكون رقماً صحيحاً."}), 400
             
         api_hash = str(api_hash_val).strip()
         phone = str(phone_val).strip()
@@ -38,26 +36,29 @@ def send_code():
             try:
                 sent_code = await client.send_code(phone)
                 code_hash = sent_code.phone_code_hash
+                # استخراج جلسة الاتصال المؤقتة للحفاظ على نفس مفتاح الارتباط
+                temp_session = await client.export_session_string()
             finally:
                 await client.disconnect()
-            return code_hash
+            return code_hash, temp_session
 
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        code_hash = loop.run_until_complete(run_pyrogram())
+        code_hash, temp_session = loop.run_until_complete(run_pyrogram())
         
         return jsonify({
             "status": "success", 
             "hash": code_hash, 
-            "message": "تم إرسال كود التحقق بنجاح إلى تيليجرام."
+            "temp_session": temp_session,
+            "message": "تم إرسال كود التحقق بنجاح."
         })
         
     except FloodWait as e:
-        return jsonify({"status": "error", "message": f"عفواً، هناك حظر مؤقت من تيليجرام. يجيب الانتظار {e.value} ثانية."}), 400
+        return jsonify({"status": "error", "message": f"حظر مؤقت من تيليجرام. انتظر {e.value} ثانية."}), 400
     except PhoneNumberInvalid:
-        return jsonify({"status": "error", "message": "رقم الهاتف المدخل غير صحيح أو غير مسجل في تيليجرام."}), 400
+        return jsonify({"status": "error", "message": "رقم الهاتف غير صحيح أو غير مسجل في تيليجرام."}), 400
     except Exception as e:
-        return jsonify({"status": "error", "message": f"خطأ في السيرفر: {str(e)}"}), 400
+        return jsonify({"status": "error", "message": f"خطأ: {str(e)}"}), 400
 
 @app.route('/verify_code', methods=['POST'])
 def verify_code():
@@ -68,9 +69,10 @@ def verify_code():
         code_hash_val = data.get('hash')
         api_id_val = data.get('api_id')
         api_hash_val = data.get('api_hash')
+        temp_session_val = data.get('temp_session')
         
-        if not phone_val or not code_val or not code_hash_val or not api_id_val or not api_hash_val:
-            return jsonify({"status": "error", "message": "بيانات غير مكتملة، تأكد من إرسال الكود وملء الحقول."}), 400
+        if not phone_val or not code_val or not code_hash_val or not api_id_val or not api_hash_val or not temp_session_val:
+            return jsonify({"status": "error", "message": "بيانات غير مكتملة، يرجى إعادة طلب الكود."}), 400
 
         try:
             api_id = int(str(api_id_val).strip())
@@ -81,24 +83,25 @@ def verify_code():
         code = str(code_val).strip()
         code_hash = str(code_hash_val).strip()
         api_hash = str(api_hash_val).strip()
+        temp_session = str(temp_session_val).strip()
 
         async def run_verify():
-            client = Client(f"verify_{phone}_{os.urandom(4).hex()}", api_id=api_id, api_hash=api_hash, in_memory=True)
+            # استخدام نفس الجلسة المؤقتة السابقة لضمان مطابقة الـ Hash وعدم انتهاء الصلاحية
+            client = Client(f"verify_{phone}_{os.urandom(4).hex()}", api_id=api_id, api_hash=api_hash, session_string=temp_session, in_memory=True)
             await client.connect()
             
             try:
                 await client.sign_in(phone, code_hash, code)
             except PhoneCodeInvalid:
                 await client.disconnect()
-                raise Exception("كود التحقق خاطئ، يرجى التأكد من الكود المكتوب.")
+                raise Exception("كود التحقق خاطئ، تأكد من الأرقام.")
             except PhoneCodeExpired:
                 await client.disconnect()
-                raise Exception("انتهت صلاحية كود التحقق، اطلب كوداً جديداً.")
+                raise Exception("انتهت صلاحية الكود، اطلب كوداً جديداً.")
             
             session_string = await client.export_session_string()
             await client.disconnect()
             
-            # تشغيل البوت في الخلفية بشكل دائم
             start_persistent_bot(session_string, api_id, api_hash)
             return session_string
 
@@ -109,7 +112,7 @@ def verify_code():
         return jsonify({
             "status": "success", 
             "session_string": session_string, 
-            "message": "تم تسجيل الدخول وتفعيل البوت بنجاح تام!"
+            "message": "تم تسجيل الدخول بنجاح!"
         })
         
     except Exception as e:
