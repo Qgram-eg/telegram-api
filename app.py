@@ -1,5 +1,6 @@
 from flask import Flask, request, jsonify
-from pyrogram import Client
+from pyrogram import Client, filters
+from pyrogram.handlers import MessageHandler
 import asyncio
 import os
 
@@ -7,7 +8,7 @@ app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return jsonify({"status": "online", "message": "Telegram API Bridge is Working!"})
+    return jsonify({"status": "online", "message": "Telegram API Bridge with Commands is Working!"})
 
 # تخزين الجلسات النشطة مؤقتاً
 active_clients = {}
@@ -32,7 +33,6 @@ def send_code():
         await client.connect()
         sent_code = await client.send_code(phone)
         
-        # حفظ الجلسة والـ hash مؤقتاً
         active_clients[phone] = {
             "client": client,
             "hash": sent_code.phone_code_hash
@@ -54,18 +54,36 @@ def verify_code():
     code = data.get('code')
     
     if not phone or not code:
-        return jsonify({"status": "error", "message": "بيانات غير مكتملة (رقم الهاتف أو الكود ناقص)"})
+        return jsonify({"status": "error", "message": "بيانات غير مكتملة"})
 
     async def run_verify():
         session_data = active_clients.get(phone)
         if not session_data:
-            raise Exception("انتهت الجلسة أو لم تقم بإرسال الكود أولاً، يرجى طلب الكود مرة أخرى")
+            raise Exception("انتهت الجلسة أو لم تقم بإرسال الكود أولاً")
         
         client = session_data["client"]
         phone_code_hash = session_data["hash"]
         
         await client.sign_in(phone, phone_code_hash, code)
-        return "تم تسجيل الدخول وحفظ الجلسة بنجاح!"
+        
+        # --- إضافة الأوامر التفاعلية (يعمل عند إرسالها من حسابك الشخصي) ---
+        
+        @client.on_message(filters.me & filters.command(["source", "شورس"], prefixes="."))
+        async def source_command(c, message):
+            await message.edit(
+                "🤖 **معلومات السورس (Telegram API Bridge):**\n"
+                "━━━━━━━━━━━━━━━\n"
+                "• **الحالة:** يعمل بكفاءة تامة 🟢\n"
+                "• **المنصة:** مستضاف على Railway\n"
+                "• **المطور:** Youssef\n"
+                "• **التقنية:** Python, Flask & Pyrogram"
+            )
+
+        @client.on_message(filters.me & filters.command(["ping", "بينق"], prefixes="."))
+        async def ping_command(c, message):
+            await message.edit("🏓 **Pong!** السيرفر شغال وسريع جداً ⚡")
+
+        return "تم تسجيل الدخول وتفعيل الأوامر (Source & Ping) بنجاح!"
 
     try:
         loop = asyncio.new_event_loop()
