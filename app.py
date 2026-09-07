@@ -29,7 +29,8 @@ def send_code():
         return jsonify({"status": "error", "message": "API ID يجب أن يكون رقماً صحيحاً"})
     
     async def run_pyrogram():
-        client = Client(StringSession(), api_id=api_id, api_hash=api_hash, in_memory=True)
+        # استخدام جلسة مؤقتة سليمة وآمنة للاتصال الأول
+        client = Client(f"session_{phone}", api_id=api_id, api_hash=api_hash, in_memory=True)
         await client.connect()
         sent_code = await client.send_code(phone)
         
