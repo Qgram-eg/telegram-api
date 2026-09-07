@@ -1,6 +1,6 @@
 from flask import Flask, request, jsonify
 from pyrogram import Client, filters
-from pyrogram.errors import PhoneCodeInvalid, PhoneCodeExpired, SessionPasswordNeeded
+from pyrogram.errors import PhoneCodeInvalid, PhoneCodeExpired
 import asyncio
 import threading
 import os
@@ -22,16 +22,15 @@ def send_code():
         return jsonify({"status": "error", "message": "يجب إدخال API ID و API Hash ورقم الهاتف"})
     
     try:
-        api_id = int(api_id_str)
+        api_id = int(str(api_id_str).strip())
     except ValueError:
         return jsonify({"status": "error", "message": "API ID يجب أن يكون رقماً صحيحاً"})
     
     async def run_pyrogram():
-        client = Client(f"temp_{phone}", api_id=api_id, api_hash=api_hash, in_memory=True)
+        client = Client(f"temp_{phone}", api_id=api_id, api_hash=str(api_hash).strip(), in_memory=True)
         await client.connect()
-        sent_code = await client.send_code(phone)
+        sent_code = await client.send_code(str(phone).strip())
         code_hash = sent_code.phone_code_hash
-        # تصدير مفتاح الجلسة المؤقت للحفاظ على نفس الاتصال
         temp_session = await client.export_session_string()
         await client.disconnect()
         return code_hash, temp_session
@@ -60,20 +59,19 @@ def verify_code():
     temp_session = data.get('temp_session')
     
     if not phone or not code or not code_hash or not api_id_str or not api_hash or not temp_session:
-        return jsonify({"status": "error", "message": "بيانات غير مكتملة (يرجى إرسال الكود أولاً)"})
+        return jsonify({"status": "error", "message": "بيانات غير مكتملة، يرجى إعادة إرسال الكود"})
 
     try:
-        api_id = int(api_id_str)
+        api_id = int(str(api_id_str).strip())
     except ValueError:
         return jsonify({"status": "error", "message": "API ID يجب أن يكون رقماً صحيحاً"})
 
     async def run_verify():
-        # إعادة استخدام نفس الجلسة التي طلبت الكود بالضبط!
-        client = Client("verify_client", session_string=temp_session, api_id=api_id, api_hash=api_hash)
+        client = Client("verify_client", session_string=str(temp_session).strip(), api_id=api_id, api_hash=str(api_hash).strip())
         await client.connect()
         
         try:
-            await client.sign_in(phone, code_hash, code)
+            await client.sign_in(str(phone).strip(), str(code_hash).strip(), str(code).strip())
         except PhoneCodeInvalid:
             await client.disconnect()
             raise Exception("كود التحقق غير صحيح، تأكد من الرقم ورمز التحقق.")
@@ -90,7 +88,7 @@ def verify_code():
         session_string = await client.export_session_string()
         await client.disconnect()
         
-        start_persistent_bot(session_string, api_id, api_hash)
+        start_persistent_bot(session_string, api_id, str(api_hash).strip())
         return session_string
 
     try:
