@@ -10,7 +10,6 @@ app = Flask(__name__)
 def home():
     return jsonify({"status": "online", "message": "Telegram Userbot Bridge is Running 🟢"})
 
-# الاحتفاظ بكائن العميل نشطاً في الذاكرة بين إرسال الكود والتحقق منه
 active_clients = {}
 
 @app.route('/send_code', methods=['POST'])
@@ -29,7 +28,6 @@ def send_code():
         return jsonify({"status": "error", "message": "API ID يجب أن يكون رقماً صحيحاً"})
     
     async def run_pyrogram():
-        # إنشاء العميل والاحتفاظ به في القاموس العالمي
         client = Client(f"temp_{phone}", api_id=api_id, api_hash=api_hash, in_memory=True)
         await client.connect()
         sent_code = await client.send_code(phone)
@@ -56,7 +54,6 @@ def verify_code():
         return jsonify({"status": "error", "message": "بيانات غير مكتملة (رقم الهاتف، الكود، أو الـ Hash ناقصين)"})
 
     async def run_verify():
-        # جلب نفس العميل الذي أرسل الكود
         client = active_clients.get(phone)
         if not client:
             raise Exception("انتهت الجلسة أو تم إعادة تشغيل السيرفر، يرجى إعادة إرسال الكود من جديد")
@@ -78,7 +75,6 @@ def verify_code():
         await client.disconnect()
         active_clients.pop(phone, None)
         
-        # تشغيل البوت الدائم في الخلفية
         start_persistent_bot(session_string, api_id, api_hash)
         
         return session_string
