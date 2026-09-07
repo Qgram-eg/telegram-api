@@ -25,18 +25,19 @@ def send_code():
         try:
             api_id = int(str(api_id_val).strip())
         except (ValueError, TypeError):
-            return jsonify({"status": "error", "message": "API ID يجب أن يكون رقماً صحيحاً."}), 400
+            return jsonify({"status": "error", "message": "API ID يجب أن يكون رقماً صحيحاً تماماً."}), 400
             
         api_hash = str(api_hash_val).strip()
         phone = str(phone_val).strip()
         
         async def run_pyrogram():
+            # إنشاء عميل مؤقت في الذاكرة مع معرف فريد لمنع التداخل
             client = Client(f"temp_{phone}_{os.urandom(4).hex()}", api_id=api_id, api_hash=api_hash, in_memory=True)
             await client.connect()
             try:
                 sent_code = await client.send_code(phone)
                 code_hash = sent_code.phone_code_hash
-                # استخراج جلسة الاتصال المؤقتة للحفاظ على نفس مفتاح الارتباط
+                # تصدير جلسة الاتصال المؤقتة لضمان تطابق المفتاح عند إدخال الكود
                 temp_session = await client.export_session_string()
             finally:
                 await client.disconnect()
@@ -50,15 +51,15 @@ def send_code():
             "status": "success", 
             "hash": code_hash, 
             "temp_session": temp_session,
-            "message": "تم إرسال كود التحقق بنجاح."
+            "message": "تم إرسال كود التحقق بنجاح إلى تيليجرام."
         })
         
     except FloodWait as e:
-        return jsonify({"status": "error", "message": f"حظر مؤقت من تيليجرام. انتظر {e.value} ثانية."}), 400
+        return jsonify({"status": "error", "message": f"حظر مؤقت من تيليجرام. يرجى الانتظار {e.value} ثانية."}), 400
     except PhoneNumberInvalid:
-        return jsonify({"status": "error", "message": "رقم الهاتف غير صحيح أو غير مسجل في تيليجرام."}), 400
+        return jsonify({"status": "error", "message": "رقم الهاتف المدخل غير صحيح أو غير مسجل في تيليجرام."}), 400
     except Exception as e:
-        return jsonify({"status": "error", "message": f"خطأ: {str(e)}"}), 400
+        return jsonify({"status": "error", "message": f"خطأ تقني: {str(e)}"}), 400
 
 @app.route('/verify_code', methods=['POST'])
 def verify_code():
@@ -86,7 +87,7 @@ def verify_code():
         temp_session = str(temp_session_val).strip()
 
         async def run_verify():
-            # استخدام نفس الجلسة المؤقتة السابقة لضمان مطابقة الـ Hash وعدم انتهاء الصلاحية
+            # استخدام نفس الجلسة المؤقتة السابقة لمنع خطأ انتهاء الصلاحية الفوري
             client = Client(f"verify_{phone}_{os.urandom(4).hex()}", api_id=api_id, api_hash=api_hash, session_string=temp_session, in_memory=True)
             await client.connect()
             
@@ -94,14 +95,15 @@ def verify_code():
                 await client.sign_in(phone, code_hash, code)
             except PhoneCodeInvalid:
                 await client.disconnect()
-                raise Exception("كود التحقق خاطئ، تأكد من الأرقام.")
+                raise Exception("كود التحقق خاطئ، تأكد من الأرقام المرسلة من تيليجرام.")
             except PhoneCodeExpired:
                 await client.disconnect()
-                raise Exception("انتهت صلاحية الكود، اطلب كوداً جديداً.")
+                raise Exception("انتهت صلاحية الكود تماماً، يرجى طلب كود جديد.")
             
             session_string = await client.export_session_string()
             await client.disconnect()
             
+            # تشغيل البوت الدائم في الخلفية
             start_persistent_bot(session_string, api_id, api_hash)
             return session_string
 
@@ -112,7 +114,7 @@ def verify_code():
         return jsonify({
             "status": "success", 
             "session_string": session_string, 
-            "message": "تم تسجيل الدخول بنجاح!"
+            "message": "تم تسجيل الدخول بنجاح وتفعيل الحساب!"
         })
         
     except Exception as e:
@@ -135,11 +137,11 @@ def start_persistent_bot(session_string, api_id, api_hash):
                 
                 @bot_client.on_message(filters.me & filters.command(["source", "شورس"], prefixes="."))
                 async def source_command(c, message):
-                    await message.edit("🤖 **Userbot Bridge**\n• الحالة: يعمل بنجاح 🟢\n• المطور: يوسف")
+                    await message.edit("🤖 **Userbot Bridge**\n• الحالة: متصل ويعمل بنجاح 🟢\n• المطور: يوسف")
 
                 @bot_client.on_message(filters.me & filters.command(["ping", "بينق"], prefixes="."))
                 async def ping_command(c, message):
-                    await message.edit("🏓 **Pong!** السيرفر متصل وسريع ⚡")
+                    await message.edit("🏓 **Pong!** السيرفر متصل وسريع وسجّل الدخول بنجاح ⚡")
 
                 await bot_client.start()
                 await asyncio.get_event_loop().create_future()
