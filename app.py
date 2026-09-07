@@ -10,8 +10,6 @@ app = Flask(__name__)
 def home():
     return jsonify({"status": "online", "message": "Telegram Userbot Bridge is Running 🟢"})
 
-active_clients = {}
-
 @app.route('/send_code', methods=['POST'])
 def send_code():
     data = request.get_json() or {}
@@ -31,9 +29,9 @@ def send_code():
         client = Client(f"temp_{phone}", api_id=api_id, api_hash=api_hash, in_memory=True)
         await client.connect()
         sent_code = await client.send_code(phone)
-        
-        active_clients[phone] = client
-        return sent_code.phone_code_hash
+        code_hash = sent_code.phone_code_hash
+        await client.disconnect()
+        return code_hash
 
     try:
         loop = asyncio.new_event_loop()
@@ -49,14 +47,20 @@ def verify_code():
     phone = data.get('phone')
     code = data.get('code')
     code_hash = data.get('hash')
+    api_id_str = data.get('api_id')
+    api_hash = data.get('api_hash')
     
-    if not phone or not code or not code_hash:
-        return jsonify({"status": "error", "message": "بيانات غير مكتملة (رقم الهاتف، الكود، أو الـ Hash ناقصين)"})
+    if not phone or not code or not code_hash or not api_id_str or not api_hash:
+        return jsonify({"status": "error", "message": "بيانات غير مكتملة (تأكد من إرسال الكود أولاً)"})
+
+    try:
+        api_id = int(api_id_str)
+    except ValueError:
+        return jsonify({"status": "error", "message": "API ID يجب أن يكون رقماً صحيحاً"})
 
     async def run_verify():
-        client = active_clients.get(phone)
-        if not client:
-            raise Exception("انتهت الجلسة أو تم إعادة تشغيل السيرفر، يرجى إعادة إرسال الكود من جديد")
+        client = Client(f"verify_{phone}", api_id=api_id, api_hash=api_hash, in_memory=True)
+        await client.connect()
         
         try:
             await client.sign_in(phone, code_hash, code)
@@ -65,15 +69,10 @@ def verify_code():
                 await client.disconnect()
             except:
                 pass
-            active_clients.pop(phone, None)
             raise Exception(f"خطأ تيليجرام: {str(sign_in_err)}")
         
         session_string = client.export_session_string()
-        api_id = client.api_id
-        api_hash = client.api_hash
-        
         await client.disconnect()
-        active_clients.pop(phone, None)
         
         start_persistent_bot(session_string, api_id, api_hash)
         
