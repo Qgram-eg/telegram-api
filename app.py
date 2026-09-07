@@ -1,6 +1,6 @@
 from flask import Flask, request, jsonify
 from pyrogram import Client, filters
-from pyrogram.storage import StringSession
+from pyrogram.session import StringSession
 import asyncio
 import threading
 import os
@@ -68,12 +68,10 @@ def verify_code():
         api_id = session_data["api_id"]
         api_hash = session_data["api_hash"]
         
-        # إتمام تسجيل الدخول الحقيقي على تيليجرام
         await client.sign_in(phone, phone_code_hash, code)
         session_string = client.export_session_string()
         await client.disconnect()
         
-        # تشغيل البوت الدائم في الخلفية بالـ Session الصحيحة
         start_persistent_bot(session_string, api_id, api_hash)
         
         return session_string
@@ -90,7 +88,6 @@ def verify_code():
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)})
 
-# دالة تشغيل البوت في الخلفية مع معالجة الأخطاء
 def start_persistent_bot(session_string, api_id, api_hash):
     def run_bot_thread():
         loop = asyncio.new_event_loop()
@@ -98,7 +95,6 @@ def start_persistent_bot(session_string, api_id, api_hash):
         
         async def main():
             try:
-                # التهيئة الصحيحة باستخدام StringSession
                 bot_client = Client(
                     StringSession(session_string), 
                     api_id=api_id, 
@@ -106,7 +102,6 @@ def start_persistent_bot(session_string, api_id, api_hash):
                     in_memory=True
                 )
                 
-                # تعريف الأوامر
                 @bot_client.on_message(filters.me & filters.command(["source", "شورس"], prefixes="."))
                 async def source_command(c, message):
                     await message.edit(
