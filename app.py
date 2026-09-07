@@ -7,15 +7,17 @@ app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return jsonify({"status": "online", "message": "Telegram API Bridge on Render is Working!"})
+    return jsonify({"status": "online", "message": "Telegram API Bridge is Working!"})
 
+# تخزين الجلسات النشطة مؤقتاً
 active_clients = {}
 
-@app.route('/send_code', methods=['GET'])
+@app.route('/send_code', methods=['POST'])
 def send_code():
-    api_id_str = request.args.get('api_id')
-    api_hash = request.args.get('api_hash')
-    phone = request.args.get('phone')
+    data = request.get_json() or {}
+    api_id_str = data.get('api_id')
+    api_hash = data.get('api_hash')
+    phone = data.get('phone')
     
     if not api_id_str or not api_hash or not phone:
         return jsonify({"status": "error", "message": "يجب إدخال API ID و API Hash ورقم الهاتف"})
@@ -30,6 +32,7 @@ def send_code():
         await client.connect()
         sent_code = await client.send_code(phone)
         
+        # حفظ الجلسة والـ hash مؤقتاً
         active_clients[phone] = {
             "client": client,
             "hash": sent_code.phone_code_hash
@@ -44,19 +47,19 @@ def send_code():
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)})
 
-@app.route('/verify_code', methods=['GET'])
+@app.route('/verify_code', methods=['POST'])
 def verify_code():
-    phone = request.args.get('phone')
-    code = request.args.get('code')
-    code_hash = request.args.get('hash')
+    data = request.get_json() or {}
+    phone = data.get('phone')
+    code = data.get('code')
     
-    if not phone or not code or not code_hash:
-        return jsonify({"status": "error", "message": "بيانات غير مكتملة"})
+    if not phone or not code:
+        return jsonify({"status": "error", "message": "بيانات غير مكتملة (رقم الهاتف أو الكود ناقص)"})
 
     async def run_verify():
         session_data = active_clients.get(phone)
         if not session_data:
-            raise Exception("انتهت الجلسة، يرجى طلب الكود مرة أخرى")
+            raise Exception("انتهت الجلسة أو لم تقم بإرسال الكود أولاً، يرجى طلب الكود مرة أخرى")
         
         client = session_data["client"]
         phone_code_hash = session_data["hash"]
