@@ -1,16 +1,16 @@
 from flask import Flask, request, jsonify
 from pyrogram import Client, filters
-from pyrogram.handlers import MessageHandler
+from pyrogram.storage import StringSession
 import asyncio
+import threading
 import os
 
 app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return jsonify({"status": "online", "message": "Telegram API Bridge with Commands is Working!"})
+    return jsonify({"status": "online", "message": "Telegram Userbot Bridge is Running 🟢"})
 
-# تخزين الجلسات النشطة مؤقتاً
 active_clients = {}
 
 @app.route('/send_code', methods=['POST'])
@@ -29,13 +29,15 @@ def send_code():
         return jsonify({"status": "error", "message": "API ID يجب أن يكون رقماً صحيحاً"})
     
     async def run_pyrogram():
-        client = Client(f"session_{phone}", api_id=api_id, api_hash=api_hash, in_memory=True)
+        client = Client(StringSession(), api_id=api_id, api_hash=api_hash, in_memory=True)
         await client.connect()
         sent_code = await client.send_code(phone)
         
         active_clients[phone] = {
             "client": client,
-            "hash": sent_code.phone_code_hash
+            "hash": sent_code.phone_code_hash,
+            "api_id": api_id,
+            "api_hash": api_hash
         }
         return sent_code.phone_code_hash
 
@@ -59,39 +61,75 @@ def verify_code():
     async def run_verify():
         session_data = active_clients.get(phone)
         if not session_data:
-            raise Exception("انتهت الجلسة أو لم تقم بإرسال الكود أولاً")
+            raise Exception("انتهت الجلسة، يرجى إعادة إرسال الكود")
         
         client = session_data["client"]
         phone_code_hash = session_data["hash"]
+        api_id = session_data["api_id"]
+        api_hash = session_data["api_hash"]
         
+        # إتمام تسجيل الدخول الحقيقي على تيليجرام
         await client.sign_in(phone, phone_code_hash, code)
+        session_string = client.export_session_string()
+        await client.disconnect()
         
-        # --- إضافة الأوامر التفاعلية (يعمل عند إرسالها من حسابك الشخصي) ---
+        # تشغيل البوت الدائم في الخلفية بالـ Session الصحيحة
+        start_persistent_bot(session_string, api_id, api_hash)
         
-        @client.on_message(filters.me & filters.command(["source", "شورس"], prefixes="."))
-        async def source_command(c, message):
-            await message.edit(
-                "🤖 **معلومات السورس (Telegram API Bridge):**\n"
-                "━━━━━━━━━━━━━━━\n"
-                "• **الحالة:** يعمل بكفاءة تامة 🟢\n"
-                "• **المنصة:** مستضاف على Railway\n"
-                "• **المطور:** Youssef\n"
-                "• **التقنية:** Python, Flask & Pyrogram"
-            )
-
-        @client.on_message(filters.me & filters.command(["ping", "بينق"], prefixes="."))
-        async def ping_command(c, message):
-            await message.edit("🏓 **Pong!** السيرفر شغال وسريع جداً ⚡")
-
-        return "تم تسجيل الدخول وتفعيل الأوامر (Source & Ping) بنجاح!"
+        return session_string
 
     try:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        result = loop.run_until_complete(run_verify())
-        return jsonify({"status": "success", "message": result})
+        session_string = loop.run_until_complete(run_verify())
+        return jsonify({
+            "status": "success", 
+            "session_string": session_string, 
+            "message": "تم تسجيل الدخول بنجاح وتفعيل الحساب!"
+        })
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)})
+
+# دالة تشغيل البوت في الخلفية مع معالجة الأخطاء
+def start_persistent_bot(session_string, api_id, api_hash):
+    def run_bot_thread():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        async def main():
+            try:
+                # التهيئة الصحيحة باستخدام StringSession
+                bot_client = Client(
+                    StringSession(session_string), 
+                    api_id=api_id, 
+                    api_hash=api_hash, 
+                    in_memory=True
+                )
+                
+                # تعريف الأوامر
+                @bot_client.on_message(filters.me & filters.command(["source", "شورس"], prefixes="."))
+                async def source_command(c, message):
+                    await message.edit(
+                        "🤖 **معلومات السورس (Telegram API Bridge):**\n"
+                        "━━━━━━━━━━━━━━━\n"
+                        "• **الحالة:** متصل ويعمل في الخلفية 🟢\n"
+                        "• **المطور:** Youssef"
+                    )
+
+                @bot_client.on_message(filters.me & filters.command(["ping", "بينق"], prefixes="."))
+                async def ping_command(c, message):
+                    await message.edit("🏓 **Pong!** السيرفر شغال وسريع ⚡")
+
+                await bot_client.start()
+                print("✅ Userbot connected and listening successfully!")
+                await asyncio.get_event_loop().create_future()
+            except Exception as e:
+                print(f"❌ Background Bot Error: {str(e)}")
+
+        loop.run_until_complete(main())
+
+    t = threading.Thread(target=run_bot_thread, daemon=True)
+    t.start()
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
