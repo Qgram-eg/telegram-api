@@ -10,7 +10,7 @@ app = Flask(__name__)
 def home():
     return jsonify({"status": "online", "message": "Telegram Userbot Bridge is Running 🟢"})
 
-active_clients = {}
+active_hashes = {}
 
 @app.route('/send_code', methods=['POST'])
 def send_code():
@@ -28,16 +28,16 @@ def send_code():
         return jsonify({"status": "error", "message": "API ID يجب أن يكون رقماً صحيحاً"})
     
     async def run_pyrogram():
-        client = Client(f"session_{phone}", api_id=api_id, api_hash=api_hash, in_memory=True)
+        client = Client(f"temp_{phone}", api_id=api_id, api_hash=api_hash, in_memory=True)
         await client.connect()
         sent_code = await client.send_code(phone)
         
-        active_clients[phone] = {
-            "client": client,
+        active_hashes[phone] = {
             "hash": sent_code.phone_code_hash,
             "api_id": api_id,
             "api_hash": api_hash
         }
+        await client.disconnect()
         return sent_code.phone_code_hash
 
     try:
@@ -46,28 +46,36 @@ def send_code():
         code_hash = loop.run_until_complete(run_pyrogram())
         return jsonify({"status": "success", "hash": code_hash, "message": "تم إرسال الكود بنجاح"})
     except Exception as e:
-        return jsonify({"status": "error", "message": str(e)})
+        return jsonify({"status": "error", "message": str(e)}), 400
 
 @app.route('/verify_code', methods=['POST'])
 def verify_code():
     data = request.get_json() or {}
     phone = data.get('phone')
     code = data.get('code')
+    code_hash = data.get('hash')
     
-    if not phone or not code:
-        return jsonify({"status": "error", "message": "بيانات غير مكتملة"})
+    if not phone or not code or not code_hash:
+        return jsonify({"status": "error", "message": "بيانات غير مكتملة (رقم الهاتف، الكود، أو الـ Hash ناقصين)"})
 
     async def run_verify():
-        session_data = active_clients.get(phone)
+        # التصحيح هنا: دمجنا session_data بدون مسافة
+        session_data = active_hashes.get(phone)
         if not session_data:
-            raise Exception("انتهت الجلسة، يرجى إعادة إرسال الكود")
+            raise Exception("انتهت الجلسة، يرجى إعادة إرسال الكود من جديد")
         
-        client = session_data["client"]
-        phone_code_hash = session_data["hash"]
         api_id = session_data["api_id"]
         api_hash = session_data["api_hash"]
         
-        await client.sign_in(phone, phone_code_hash, code)
+        client = Client(f"verify_{phone}", api_id=api_id, api_hash=api_hash, in_memory=True)
+        await client.connect()
+        
+        try:
+            await client.sign_in(phone, code_hash, code)
+        except Exception as sign_in_err:
+            await client.disconnect()
+            raise Exception(f"خطأ تيليجرام: {str(sign_in_err)}")
+        
         session_string = client.export_session_string()
         await client.disconnect()
         
@@ -85,7 +93,7 @@ def verify_code():
             "message": "تم تسجيل الدخول بنجاح وتفعيل الحساب!"
         })
     except Exception as e:
-        return jsonify({"status": "error", "message": str(e)})
+        return jsonify({"status": "error", "message": str(e)}), 400
 
 def start_persistent_bot(session_string, api_id, api_hash):
     def run_bot_thread():
@@ -94,7 +102,6 @@ def start_persistent_bot(session_string, api_id, api_hash):
         
         async def main():
             try:
-                # استخدام Client مع تمرير session_string مباشرة بدون الحاجة لاستيراد خارجي
                 bot_client = Client(
                     "persistent_userbot", 
                     api_id=api_id, 
