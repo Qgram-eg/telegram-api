@@ -15,18 +15,20 @@ def home():
 def send_code():
     try:
         data = request.get_json(silent=True) or {}
-        api_id_val = data.get('api_id')
+        print("📥 Received Data:", data)  # يظهر في لوحة تحكم Railway للتأكد من وصول البيانات
+        
+        raw_api_id = data.get('api_id')
         api_hash_val = data.get('api_hash')
         phone_val = data.get('phone')
         
-        if api_id_val is None or not api_hash_val or not phone_val:
-            return jsonify({"status": "error", "message": "جميع الحقول إجبارية."}), 400
+        if raw_api_id is None or not api_hash_val or not phone_val:
+            return jsonify({"status": "error", "message": "جميع الحقول (API ID, API Hash, الهاتف) إجبارية."}), 400
         
-        # تحويل آمن وصارم لـ api_id إلى رقم صحيح
+        # تحويل صارم ومؤكد لـ api_id إلى رقم صحيح (Integer) مهما كانت طريقته
         try:
-            api_id = int(str(api_id_val).strip())
+            api_id = int(raw_api_id)
         except (ValueError, TypeError):
-            return jsonify({"status": "error", "message": "API ID يجب أن يكون رقماً صحيحاً."}), 400
+            return jsonify({"status": "error", "message": "API ID يجب أن يكون رقماً صحيحاً صريحاً."}), 400
             
         api_hash = str(api_hash_val).strip()
         phone = str(phone_val).strip()
@@ -75,7 +77,7 @@ def verify_code():
             return jsonify({"status": "error", "message": "بيانات غير مكتملة."}), 400
 
         try:
-            api_id = int(str(api_id_val).strip())
+            api_id = int(api_id_val)
         except (ValueError, TypeError):
             return jsonify({"status": "error", "message": "API ID يجب أن يكون رقماً صحيحاً."}), 400
 
