@@ -1,6 +1,5 @@
 from flask import Flask, request, jsonify
 from pyrogram import Client, filters
-from pyrogram.session import StringSession
 import asyncio
 import threading
 import os
@@ -29,7 +28,6 @@ def send_code():
         return jsonify({"status": "error", "message": "API ID يجب أن يكون رقماً صحيحاً"})
     
     async def run_pyrogram():
-        # استخدام جلسة مؤقتة سليمة وآمنة للاتصال الأول
         client = Client(f"session_{phone}", api_id=api_id, api_hash=api_hash, in_memory=True)
         await client.connect()
         sent_code = await client.send_code(phone)
@@ -96,10 +94,12 @@ def start_persistent_bot(session_string, api_id, api_hash):
         
         async def main():
             try:
+                # استخدام Client مع تمرير session_string مباشرة بدون الحاجة لاستيراد خارجي
                 bot_client = Client(
-                    StringSession(session_string), 
+                    "persistent_userbot", 
                     api_id=api_id, 
                     api_hash=api_hash, 
+                    session_string=session_string,
                     in_memory=True
                 )
                 
